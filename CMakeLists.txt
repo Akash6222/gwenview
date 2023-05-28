@@ -1,0 +1,265 @@
+cmake_minimum_required (VERSION 3.16 FATAL_ERROR)
+
+# KDE Application Version, managed by release script
+set (RELEASE_SERVICE_VERSION_MAJOR "23")
+set (RELEASE_SERVICE_VERSION_MINOR "04")
+set (RELEASE_SERVICE_VERSION_MICRO "1")
+set (RELEASE_SERVICE_VERSION "${RELEASE_SERVICE_VERSION_MAJOR}.${RELEASE_SERVICE_VERSION_MINOR}.${RELEASE_SERVICE_VERSION_MICRO}")
+
+project(gwenview VERSION ${RELEASE_SERVICE_VERSION})
+
+set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake )
+
+set (QT_MIN_VERSION "5.15.2")
+set (KF5_MIN_VERSION "5.90.0")
+set(KDE_COMPILERSETTINGS_LEVEL "5.82")
+
+
+find_package(ECM ${KF5_MIN_VERSION} REQUIRED NO_MODULE)
+
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${ECM_MODULE_PATH})
+
+include(KDEInstallDirs)
+include(KDECMakeSettings)
+include(KDECompilerSettings NO_POLICY_SCOPE)
+include(ECMOptionalAddSubdirectory)
+include(ECMInstallIcons)
+include(ECMSetupVersion)
+include(ECMMarkNonGuiExecutable)
+include(ECMGenerateHeaders)
+include(ECMAddAppIcon)
+include(GenerateExportHeader)
+include(FeatureSummary)
+include(ECMQtDeclareLoggingCategory)
+include(ECMDeprecationSettings)
+## Generate header with version number
+ecm_setup_version(${RELEASE_SERVICE_VERSION}
+                  VARIABLE_PREFIX GWENVIEW
+                  VERSION_HEADER "${CMAKE_CURRENT_BINARY_DIR}/lib/gwenview_version.h"
+)
+
+## CMake options
+set(GWENVIEW_SEMANTICINFO_BACKEND_NONE OFF)
+set(GWENVIEW_SEMANTICINFO_BACKEND_FAKE OFF)
+set(GWENVIEW_SEMANTICINFO_BACKEND_BALOO OFF)
+
+set(GWENVIEW_SEMANTICINFO_BACKEND "Baloo" CACHE STRING "Semantic info backend for Gwenview (Baloo/Fake/None)")
+
+# Init GWENVIEW_SEMANTICINFO_BACKEND_* vars
+if(GWENVIEW_SEMANTICINFO_BACKEND STREQUAL "None")
+    set(GWENVIEW_SEMANTICINFO_BACKEND_NONE ON)
+elseif(GWENVIEW_SEMANTICINFO_BACKEND STREQUAL "Fake")
+    set(GWENVIEW_SEMANTICINFO_BACKEND_FAKE ON)
+else()
+    set(GWENVIEW_SEMANTICINFO_BACKEND_BALOO ON)
+endif()
+
+if (APPLE OR NOT UNIX)
+    set(GWENVIEW_NO_WAYLAND_GESTURES ON)
+endif()
+
+find_package(Qt${QT_MAJOR_VERSION} ${QT_MIN_VERSION} CONFIG REQUIRED Core Widgets Concurrent Svg PrintSupport)
+find_package(Qt${QT_MAJOR_VERSION}DBus ${QT_MIN_VERSION} CONFIG QUIET)
+if (QT_MAJOR_VERSION STREQUAL "6")
+    find_package(Qt6SvgWidgets)
+    find_package(Qt6OpenGLWidgets)
+endif()
+
+
+
+if(NOT GWENVIEW_NO_WAYLAND_GESTURES)
+    find_package(WaylandProtocols REQUIRED)
+    if (QT_MAJOR_VERSION EQUAL "5")
+        find_package(QtWaylandScanner REQUIRED)
+    endif()
+    find_package(Wayland 1.9 REQUIRED Client)
+    find_package(Qt${QT_MAJOR_VERSION} REQUIRED COMPONENTS WaylandClient)
+endif()
+
+set(HAVE_QTDBUS ${Qt${QT_MAJOR_VERSION}DBus_FOUND})
+
+find_package(Phonon4Qt${QT_MAJOR_VERSION} 4.6.60 NO_MODULE REQUIRED)
+include_directories(BEFORE SYSTEM ${PHONON_INCLUDES})
+add_definitions(-DPHONON_LIB_SONAME=\"${PHONON_LIB_SONAME}\")
+
+find_package(KF5 ${KF5_MIN_VERSION} REQUIRED COMPONENTS
+    KIO
+    ItemModels
+    I18n
+    Parts
+    WindowSystem
+    IconThemes
+    Notifications
+    GuiAddons
+    WidgetsAddons
+)
+find_package(KF5 ${KF5_MIN_VERSION} OPTIONAL_COMPONENTS
+    Activities
+    DocTools
+    Purpose
+)
+
+ecm_set_disabled_deprecation_versions(QT 5.14.0 KF 5.99.0
+    )
+
+add_definitions(-DQT_NO_FOREACH)
+
+## Dependencies
+find_package(JPEG)
+set_package_properties(JPEG PROPERTIES URL "http://libjpeg.sourceforge.net/" DESCRIPTION "JPEG image manipulation support" TYPE REQUIRED)
+
+find_package(PNG)
+set_package_properties(PNG PROPERTIES URL "http://www.libpng.org" DESCRIPTION "PNG image manipulation support" TYPE REQUIRED)
+
+find_package(LibExiv2)
+set_package_properties(LibExiv2 PROPERTIES URL "https://www.exiv2.org" DESCRIPTION "image metadata support" TYPE REQUIRED)
+
+find_package(CFitsio)
+set_package_properties(CFitsio PROPERTIES URL "https://heasarc.gsfc.nasa.gov/fitsio/fitsio.html" DESCRIPTION "FITS format support" TYPE OPTIONAL)
+if(CFITSIO_FOUND)
+    set(HAVE_FITS true)
+endif()
+
+find_package(TIFF)
+set_package_properties(TIFF PROPERTIES DESCRIPTION "Library for reading TIFF files"
+                       URL "http://www.libtiff.org/"
+                       TYPE OPTIONAL
+                       PURPOSE "Disable uninteresting log messages from libtiff by default"
+                       )
+if (TIFF_FOUND)
+    set(HAVE_TIFF true)
+endif()
+
+find_package(LCMS2)
+set_package_properties(LCMS2 PROPERTIES URL "http://www.littlecms.com" DESCRIPTION "Color management engine" TYPE REQUIRED)
+
+if (GWENVIEW_SEMANTICINFO_BACKEND_BALOO)
+    find_package(KF5Baloo 5.1.90)
+    set_package_properties(KF5Baloo PROPERTIES URL "https://commits.kde.org/baloo" DESCRIPTION "Desktop-wide semantic information support" TYPE OPTIONAL)
+    if (NOT KF5Baloo_FOUND)
+        message (STATUS "You have selected Baloo for semantic backend, but required version was not found. Overriding the backend to None")
+        unset(GWENVIEW_SEMANTICINFO_BACKEND_BALOO)
+        set(GWENVIEW_SEMANTICINFO_BACKEND_NONE ON)
+    endif ()
+endif ()
+
+find_package(KF5KDcraw)
+if (KF5KDcraw_FOUND)
+   add_definitions(-DKDCRAW_FOUND)
+endif()
+set_package_properties(KF5KDcraw PROPERTIES URL "https://invent.kde.org/graphics/libkdcraw/" DESCRIPTION "C++ interface around LibRaw library used to decode RAW picture files" TYPE OPTIONAL)
+
+
+option(WITHOUT_X11 "Build without X11 integration (disables finding X11)" OFF)
+if(NOT WITHOUT_X11)
+    find_package(X11)
+    if(X11_FOUND)
+        if (QT_MAJOR_VERSION STREQUAL "5")
+            find_package(Qt5 ${QT_MIN_VERSION} CONFIG REQUIRED X11Extras)
+        endif()
+        # we need to add qt6 lib when we found x11
+        set(HAVE_X11 TRUE)
+    endif()
+endif()
+
+if (QT_MAJOR_VERSION STREQUAL "5")
+    find_package(kImageAnnotator)
+    set_package_properties(kImageAnnotator PROPERTIES URL "https://github.com/ksnip/kImageAnnotator" DESCRIPTION "The kImageAnnotator library provides tools to annotate" TYPE REQUIRED)
+    if(kImageAnnotator_FOUND)
+        set(KIMAGEANNOTATOR_FOUND 1)
+        find_package(kColorPicker REQUIRED)
+        if(NOT kImageAnnotator_VERSION VERSION_LESS 0.5.0)
+            set(KIMAGEANNOTATOR_CAN_LOAD_TRANSLATIONS 1)
+        endif()
+    endif()
+endif()
+
+configure_file(config-gwenview.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/config-gwenview.h)
+include_directories(${CMAKE_CURRENT_BINARY_DIR})
+
+add_definitions(-DQT_NO_URL_CAST_FROM_STRING)
+
+function(JoinListAsString VALUES GLUE OUTPUT)
+    string(REPLACE ";" "${GLUE}" _TMP_STR "${VALUES}")
+    set(${OUTPUT} "${_TMP_STR}" PARENT_SCOPE)
+endfunction()
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
+
+set(IMAGE_MIME_TYPES_LIST
+    image/avif
+    image/gif
+    image/heif
+    image/jpeg
+    image/jxl
+    image/png
+    image/bmp
+    image/x-eps
+    image/x-icns
+    image/x-ico
+    image/x-portable-bitmap
+    image/x-portable-graymap
+    image/x-portable-pixmap
+    image/x-xbitmap
+    image/x-xpixmap
+    image/tiff
+    image/x-psd
+    image/x-webp
+    image/webp
+    image/x-tga
+    image/x-xcf
+    application/x-krita
+)
+if (KF5KDcraw_FOUND)
+    list(APPEND IMAGE_MIME_TYPES_LIST
+        image/x-kde-raw
+        image/x-canon-cr2
+        image/x-canon-crw
+        image/x-kodak-dcr
+        image/x-adobe-dng
+        image/x-kodak-k25
+        image/x-kodak-kdc
+        image/x-minolta-mrw
+        image/x-nikon-nef
+        image/x-olympus-orf
+        image/x-pentax-pef
+        image/x-fuji-raf
+        image/x-panasonic-rw
+        image/x-sony-sr2
+        image/x-sony-srf
+        image/x-sigma-x3f
+        image/x-sony-arw
+        image/x-panasonic-rw2
+    )
+endif()
+JoinListAsString("${IMAGE_MIME_TYPES_LIST}" ";" IMAGE_MIME_TYPES)
+
+## dirs to build
+add_subdirectory(lib)
+add_subdirectory(app)
+add_subdirectory(importer)
+add_subdirectory(part)
+add_subdirectory(tests)
+add_subdirectory(icons)
+add_subdirectory(images)
+add_subdirectory(cursors)
+add_subdirectory(color-schemes)
+add_subdirectory(doc)
+add_subdirectory(kconf_update)
+ecm_qt_install_logging_categories(EXPORT GWENVIEW FILE gwenview.categories DESTINATION ${KDE_INSTALL_LOGGINGCATEGORIESDIR})
+
+ki18n_install(po)
+if(KF5DocTools_FOUND)
+    kdoctools_install(po)
+endif()
+
+feature_summary(WHAT ALL INCLUDE_QUIET_PACKAGES FATAL_ON_MISSING_REQUIRED_PACKAGES)
+
+include(KDEClangFormat)
+# add clang-format target
+file(GLOB_RECURSE ALL_CLANG_FORMAT_SOURCE_FILES *.cpp *.h *.c)
+kde_clang_format(${ALL_CLANG_FORMAT_SOURCE_FILES})
+
+include(KDEGitCommitHooks)
+kde_configure_git_pre_commit_hook(CHECKS CLANG_FORMAT)
